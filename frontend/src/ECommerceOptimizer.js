@@ -4,54 +4,48 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from "framer-motion";
 
-// ===== Mistral AI utility functions =====
-async function mistralSinglePrompt(prompt, apiKey, sys = "You are an expert e-commerce product analyst.") {
-  const res = await fetch(
-    "https://api.mistral.ai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "mistral-medium",
+// ===== Mistral AI utility functions via proxy =====
+async function mistralSinglePrompt(prompt, sys = "You are an expert e-commerce product analyst.") {
+  const res = await fetch("/api/mistral-proxy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint: "/v1/chat/completions",
+      body: {
+        model: "mistral-small-2503",
         messages: [
           { role: "system", content: sys },
           { role: "user", content: prompt }
         ],
         max_tokens: 1024,
         temperature: 0.2
-      })
-    }
-  );
-  if (!res.ok) {
-    const error = await res.text();
-    throw new Error(error);
-  }
+      }
+    })
+  });
+  if (!res.ok) throw new Error(await res.text());
   const data = await res.json();
   return data.choices?.[0]?.message?.content?.trim() || "";
 }
 
-async function mistralOptimizeDescription(original, keywords, category, audience, apiKey) {
+async function mistralOptimizeDescription(original, keywords, category, audience) {
   const prompt = `Rewrite this product description to maximize sales and SEO for a(n) ${category} product for the target audience: ${audience}. Include these keywords: ${keywords}. Here is the original:\n${original}\nOptimized:`;
-  return mistralSinglePrompt(prompt, apiKey, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.");
+  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.");
 }
-async function mistralKeywordSuggestion(original, apiKey) {
+async function mistralKeywordSuggestion(original) {
   const prompt = `Extract 5 main SEO keywords from the following product description, separated by commas:\n${original}`;
-  return mistralSinglePrompt(prompt, apiKey);
+  return mistralSinglePrompt(prompt);
 }
-async function mistralSentiment(original, apiKey) {
+async function mistralSentiment(original) {
   const prompt = `What is the sentiment of this product description? Respond with one of: Positive, Negative, Neutral. Also give a confidence score from 0-100. Description:\n${original}`;
-  return mistralSinglePrompt(prompt, apiKey);
+  return mistralSinglePrompt(prompt);
 }
-async function mistralTone(original, apiKey) {
+async function mistralTone(original) {
   const prompt = `Is the tone of this product description formal, informal, or neutral? Description:\n${original}`;
-  return mistralSinglePrompt(prompt, apiKey);
+  return mistralSinglePrompt(prompt);
 }
-async function mistralSummary(original, apiKey) {
+async function mistralSummary(original) {
   const prompt = `Summarize the following product description in 1-2 sentences:\n${original}`;
-  return mistralSinglePrompt(prompt, apiKey);
+  return mistralSinglePrompt(prompt);
 }
 
 const ECommerceOptimizer = () => {
@@ -68,8 +62,7 @@ const ECommerceOptimizer = () => {
   const [productCategory, setProductCategory] = useState('electronics');
   const [analysisResults, setAnalysisResults] = useState([]);
 
-  // --- Mistral key & AI Insights ---
-  const [mistralKey, setMistralKey] = useState("");
+  // --- AI Insights ---
   const [suggestedKeywords, setSuggestedKeywords] = useState([]);
   const [sentiment, setSentiment] = useState(null);
   const [tone, setTone] = useState("");
@@ -77,7 +70,7 @@ const ECommerceOptimizer = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // --- Fallback rules (used only if Mistral fails or no key) ---
+  // --- Fallback rules (only if API down) ---
   const optimizationRules = {
     electronics: {
       keywords: ['premium', 'advanced', 'innovative', 'high-performance', 'cutting-edge'],
@@ -152,18 +145,15 @@ const ECommerceOptimizer = () => {
     setIsOptimizing(true);
     let aiText = null;
     let aiError = null;
-    if (mistralKey) {
-      try {
-        aiText = await mistralOptimizeDescription(
-          originalDescription,
-          keywords,
-          productCategory,
-          targetAudience,
-          mistralKey
-        );
-      } catch (e) {
-        aiError = "Mistral API Error: " + e.message;
-      }
+    try {
+      aiText = await mistralOptimizeDescription(
+        originalDescription,
+        keywords,
+        productCategory,
+        targetAudience
+      );
+    } catch (e) {
+      aiError = "AI API Error: " + e.message;
     }
 
     if (aiText) {
@@ -297,18 +287,18 @@ const ECommerceOptimizer = () => {
     setTone("");
     setSummary("");
     try {
-      const keywordsRaw = await mistralKeywordSuggestion(originalDescription, mistralKey);
+      const keywordsRaw = await mistralKeywordSuggestion(originalDescription);
       setSuggestedKeywords(
         keywordsRaw.split(',').map(k => k.trim()).filter(Boolean)
       );
-      const sentimentRaw = await mistralSentiment(originalDescription, mistralKey);
+      const sentimentRaw = await mistralSentiment(originalDescription);
       const match = sentimentRaw.match(/(Positive|Negative|Neutral)[^\d]*(\d+)?/i);
       setSentiment(match
         ? { label: match[1], score: match[2] ? (Number(match[2]) / 100) : null }
         : { label: sentimentRaw, score: null }
       );
-      setTone(await mistralTone(originalDescription, mistralKey));
-      setSummary(await mistralSummary(originalDescription, mistralKey));
+      setTone(await mistralTone(originalDescription));
+      setSummary(await mistralSummary(originalDescription));
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 1400);
     } catch (e) {
@@ -380,19 +370,6 @@ const ECommerceOptimizer = () => {
               />
             </div>
           </div>
-          {/* Mistral Key */}
-          <div style={{marginTop: 22}}>
-            <label>
-              <b>Mistral API Key:</b>
-              <input
-                type="password"
-                value={mistralKey}
-                onChange={e => setMistralKey(e.target.value)}
-                placeholder="sk-..."
-                style={{maxWidth: 200, marginLeft: 8}}
-              />
-            </label>
-          </div>
         </div>
       )}
 
@@ -411,7 +388,7 @@ const ECommerceOptimizer = () => {
             <div style={{ textAlign: 'center' }}>
               <button
                 onClick={generateOptimizedDescription}
-                disabled={isOptimizing || !originalDescription.trim() || !mistralKey}
+                disabled={isOptimizing || !originalDescription.trim()}
               >
                 {isOptimizing ? "Optimizing with AI..." : "Optimize Description"}
               </button>
@@ -447,24 +424,14 @@ const ECommerceOptimizer = () => {
         </div>
       )}
 
-      {/* AI Insights Panel (Mistral only) */}
+      {/* AI Insights Panel (no API key field) */}
       {activeTab === 'optimizer' && (
         <div className="card" style={{ marginTop: 26 }}>
           <h3>✨ AI Insights</h3>
           <div style={{margin: "10px 0"}}>
-            <label>
-              Mistral API Key:
-              <input
-                type="password"
-                value={mistralKey}
-                onChange={e => setMistralKey(e.target.value)}
-                placeholder="sk-..."
-                style={{maxWidth: 300, marginLeft: 8}}
-              />
-            </label>
             <button
               style={{marginLeft: 8}}
-              disabled={isAnalyzing || !mistralKey || !originalDescription}
+              disabled={isAnalyzing || !originalDescription}
               onClick={runInsights}
             >
               {isAnalyzing ? "Analyzing..." : "Analyze with AI"}
@@ -478,7 +445,6 @@ const ECommerceOptimizer = () => {
                 animate={{ opacity: 1, y: 0, transition: { staggerChildren: 0.09, delayChildren: 0.12 } }}
                 exit={{ opacity: 0, y: 16 }}
               >
-
                 {/* Sparkle animation */}
                 {(!isAnalyzing && (suggestedKeywords.length > 0 || sentiment || tone || summary)) &&
                   <span className="sparkle" key="sparkle">✨</span>
@@ -638,7 +604,7 @@ const ECommerceOptimizer = () => {
                       {result.metric === "Conversion" && <span>💸</span>}
                       {result.metric}
                     </div>
-                    <div className="score">{result.optimized.toFixed(1)}%</div>
+                    <div className="score">{result.optimized.toFixed(2)}%</div>
                     <div className="analytics-bar-bg">
                       <div
                         className="analytics-bar"
@@ -646,7 +612,7 @@ const ECommerceOptimizer = () => {
                       ></div>
                     </div>
                     <div style={{ fontSize: 14, color: "#6a6a9a", marginTop: 2 }}>
-                      Original: <b>{result.original.toFixed(1)}%</b>
+                      Original: <b>{result.original.toFixed(2)}%</b>
                     </div>
                     <div
                       className={
@@ -658,7 +624,7 @@ const ECommerceOptimizer = () => {
                       {result.improvement < 0 && <span>▼</span>}
                       {result.improvement === 0 && <span>■</span>}
                       &nbsp;{result.improvement >= 0 ? "+" : ""}
-                      {result.improvement.toFixed(1)}%
+                      {result.improvement.toFixed(2)}%
                     </div>
                   </div>
                 ))}

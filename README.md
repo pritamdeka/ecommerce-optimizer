@@ -1,7 +1,7 @@
 # 🛒 E-Commerce Optimizer (AI-powered)
 
 [![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-3a3a3a?logo=vercel&logoColor=white)](https://your-vercel-url.vercel.app)
-[![MIT License](https://img.shields.io/github/license/YOUR_USERNAME/ecommerce-optimizer)](LICENSE)
+[![MIT License](https://img.shields.io/github/license/pritamdeka/ecommerce-optimizer)](LICENSE)
 
 A modern, AI-powered dashboard to optimize and analyze product descriptions for e-commerce. Uses the latest Mistral AI models for SEO, conversion, readability, keyword suggestions, sentiment & tone analysis — all in a visually stunning, animated interface.
 

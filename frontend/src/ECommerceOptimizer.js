@@ -1,7 +1,61 @@
-import React, { useState, useEffect } from 'react';
-import { Sparkles, Target, Eye, TrendingUp, CheckCircle, AlertCircle, Zap, RefreshCw, Copy, Download } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts';
+import { motion, AnimatePresence } from "framer-motion";
+
+// ===== Mistral AI utility functions =====
+async function mistralSinglePrompt(prompt, apiKey, sys = "You are an expert e-commerce product analyst.") {
+  const res = await fetch(
+    "https://api.mistral.ai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "mistral-medium",
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 1024,
+        temperature: 0.2
+      })
+    }
+  );
+  if (!res.ok) {
+    const error = await res.text();
+    throw new Error(error);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() || "";
+}
+
+async function mistralOptimizeDescription(original, keywords, category, audience, apiKey) {
+  const prompt = `Rewrite this product description to maximize sales and SEO for a(n) ${category} product for the target audience: ${audience}. Include these keywords: ${keywords}. Here is the original:\n${original}\nOptimized:`;
+  return mistralSinglePrompt(prompt, apiKey, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.");
+}
+async function mistralKeywordSuggestion(original, apiKey) {
+  const prompt = `Extract 5 main SEO keywords from the following product description, separated by commas:\n${original}`;
+  return mistralSinglePrompt(prompt, apiKey);
+}
+async function mistralSentiment(original, apiKey) {
+  const prompt = `What is the sentiment of this product description? Respond with one of: Positive, Negative, Neutral. Also give a confidence score from 0-100. Description:\n${original}`;
+  return mistralSinglePrompt(prompt, apiKey);
+}
+async function mistralTone(original, apiKey) {
+  const prompt = `Is the tone of this product description formal, informal, or neutral? Description:\n${original}`;
+  return mistralSinglePrompt(prompt, apiKey);
+}
+async function mistralSummary(original, apiKey) {
+  const prompt = `Summarize the following product description in 1-2 sentences:\n${original}`;
+  return mistralSinglePrompt(prompt, apiKey);
+}
 
 const ECommerceOptimizer = () => {
+  // --- State ---
   const [originalDescription, setOriginalDescription] = useState('');
   const [optimizedDescription, setOptimizedDescription] = useState('');
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -14,59 +68,66 @@ const ECommerceOptimizer = () => {
   const [productCategory, setProductCategory] = useState('electronics');
   const [analysisResults, setAnalysisResults] = useState([]);
 
+  // --- Mistral key & AI Insights ---
+  const [mistralKey, setMistralKey] = useState("");
+  const [suggestedKeywords, setSuggestedKeywords] = useState([]);
+  const [sentiment, setSentiment] = useState(null);
+  const [tone, setTone] = useState("");
+  const [summary, setSummary] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // --- Fallback rules (used only if Mistral fails or no key) ---
   const optimizationRules = {
     electronics: {
       keywords: ['premium', 'advanced', 'innovative', 'high-performance', 'cutting-edge'],
-      structure: 'specifications-first',
-      tone: 'professional'
+      structure: 'specifications-first'
     },
     fashion: {
       keywords: ['trendy', 'stylish', 'comfortable', 'versatile', 'premium'],
-      structure: 'lifestyle-focused',
-      tone: 'aspirational'
+      structure: 'lifestyle-focused'
     },
     home: {
       keywords: ['durable', 'practical', 'elegant', 'space-saving', 'quality'],
-      structure: 'benefit-focused',
-      tone: 'warm'
+      structure: 'benefit-focused'
     },
     sports: {
       keywords: ['performance', 'durable', 'professional', 'comfortable', 'reliable'],
-      structure: 'performance-focused',
-      tone: 'energetic'
+      structure: 'performance-focused'
     }
   };
 
+  // --- Metrics ---
   const analyzeText = (text) => {
     const words = text.split(/\s+/).filter(word => word.length > 0);
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-    
+
     // SEO Score calculation
     const keywordDensity = keywords.split(',').reduce((acc, keyword) => {
       const regex = new RegExp(keyword.trim(), 'gi');
       return acc + (text.match(regex) || []).length;
     }, 0);
-    
+
     const seoFactors = {
       length: text.length >= 150 && text.length <= 300 ? 25 : 10,
       keywords: Math.min(keywordDensity * 10, 25),
       structure: text.includes('•') || text.includes('-') ? 20 : 0,
       callToAction: /buy|purchase|order|get|shop/i.test(text) ? 30 : 0
     };
-    
+
     const newSeoScore = Math.min(Object.values(seoFactors).reduce((a, b) => a + b, 0), 100);
-    
+
     // Readability Score
-    const avgWordsPerSentence = words.length / sentences.length;
+    const avgWordsPerSentence = words.length / Math.max(sentences.length, 1);
     const readabilityFactors = {
       sentenceLength: avgWordsPerSentence < 20 ? 30 : 10,
-      wordComplexity: words.filter(w => w.length < 7).length / words.length * 30,
+      wordComplexity: words.filter(w => w.length < 7).length / Math.max(words.length, 1) * 30,
       structure: sentences.length >= 3 ? 20 : 10,
       clarity: text.match(/\b(this|that|it|they)\b/gi)?.length < 3 ? 20 : 10
     };
-    
+
     const newReadabilityScore = Math.min(Object.values(readabilityFactors).reduce((a, b) => a + b, 0), 100);
-    
+
     // Conversion Score
     const conversionFactors = {
       benefits: /benefit|advantage|improve|enhance|save|easy/gi.test(text) ? 25 : 0,
@@ -75,9 +136,9 @@ const ECommerceOptimizer = () => {
       social: /customers|reviews|rated|popular|trusted/gi.test(text) ? 15 : 0,
       guarantee: /guarantee|warranty|return|satisfaction/gi.test(text) ? 20 : 0
     };
-    
+
     const newConversionScore = Math.min(Object.values(conversionFactors).reduce((a, b) => a + b, 0), 100);
-    
+
     return {
       seo: newSeoScore,
       readability: newReadabilityScore,
@@ -85,60 +146,38 @@ const ECommerceOptimizer = () => {
     };
   };
 
-  const generateOptimizedDescription = () => {
+  // --- AI-powered Optimization ---
+  const generateOptimizedDescription = async () => {
     if (!originalDescription.trim()) return;
-    
     setIsOptimizing(true);
-    
-    // Simulate AI optimization process
-    setTimeout(() => {
-      const rules = optimizationRules[productCategory];
-      const keywordList = keywords.split(',').map(k => k.trim()).filter(k => k);
-      
-      let optimized = originalDescription;
-      
-      // Apply optimization rules
-      if (rules.structure === 'specifications-first') {
-        optimized = `Experience premium quality with this ${productCategory} product. ${optimized}`;
-      } else if (rules.structure === 'lifestyle-focused') {
-        optimized = `Transform your style with this ${productCategory} essential. ${optimized}`;
-      } else if (rules.structure === 'benefit-focused') {
-        optimized = `Enhance your home with this practical ${productCategory} solution. ${optimized}`;
-      } else if (rules.structure === 'performance-focused') {
-        optimized = `Boost your performance with this professional ${productCategory} equipment. ${optimized}`;
+    let aiText = null;
+    let aiError = null;
+    if (mistralKey) {
+      try {
+        aiText = await mistralOptimizeDescription(
+          originalDescription,
+          keywords,
+          productCategory,
+          targetAudience,
+          mistralKey
+        );
+      } catch (e) {
+        aiError = "Mistral API Error: " + e.message;
       }
-      
-      // Add keywords naturally
-      if (keywordList.length > 0) {
-        optimized += ` Key features include: ${keywordList.slice(0, 3).join(', ')}.`;
-      }
-      
-      // Add call-to-action
-      optimized += ' Order now and experience the difference!';
-      
-      // Add bullet points for better readability
-      const benefits = [
-        'Premium quality construction',
-        'Easy to use and maintain',
-        'Backed by customer satisfaction guarantee',
-        'Fast and reliable shipping'
-      ];
-      
-      optimized += '\n\n• ' + benefits.join('\n• ');
-      
-      setOptimizedDescription(optimized);
-      
-      // Analyze both descriptions
+    }
+
+    if (aiText) {
+      setOptimizedDescription(aiText);
       const originalAnalysis = analyzeText(originalDescription);
-      const optimizedAnalysis = analyzeText(optimized);
-      
+      const optimizedAnalysis = analyzeText(aiText);
+
       setSeoScore(optimizedAnalysis.seo);
       setReadabilityScore(optimizedAnalysis.readability);
       setConversionScore(optimizedAnalysis.conversion);
-      
+
       setAnalysisResults([
         {
-          metric: 'SEO Score',
+          metric: 'SEO',
           original: originalAnalysis.seo,
           optimized: optimizedAnalysis.seo,
           improvement: optimizedAnalysis.seo - originalAnalysis.seo
@@ -150,21 +189,88 @@ const ECommerceOptimizer = () => {
           improvement: optimizedAnalysis.readability - originalAnalysis.readability
         },
         {
-          metric: 'Conversion Potential',
+          metric: 'Conversion',
           original: originalAnalysis.conversion,
           optimized: optimizedAnalysis.conversion,
           improvement: optimizedAnalysis.conversion - originalAnalysis.conversion
         }
       ]);
-      
       setIsOptimizing(false);
-    }, 2000);
+      return;
+    }
+
+    if (aiError) {
+      alert(aiError);
+      setIsOptimizing(false);
+      return;
+    }
+
+    // Fallback (old logic)
+    setTimeout(() => {
+      const rules = optimizationRules[productCategory];
+      const keywordList = keywords.split(',').map(k => k.trim()).filter(k => k);
+
+      let optimized = originalDescription;
+      if (rules.structure === 'specifications-first') {
+        optimized = `Experience premium quality with this ${productCategory} product. ${optimized}`;
+      } else if (rules.structure === 'lifestyle-focused') {
+        optimized = `Transform your style with this ${productCategory} essential. ${optimized}`;
+      } else if (rules.structure === 'benefit-focused') {
+        optimized = `Enhance your home with this practical ${productCategory} solution. ${optimized}`;
+      } else if (rules.structure === 'performance-focused') {
+        optimized = `Boost your performance with this professional ${productCategory} equipment. ${optimized}`;
+      }
+
+      if (keywordList.length > 0) {
+        optimized += ` Key features include: ${keywordList.slice(0, 3).join(', ')}.`;
+      }
+      optimized += ' Order now and experience the difference!';
+      const benefits = [
+        'Premium quality construction',
+        'Easy to use and maintain',
+        'Backed by customer satisfaction guarantee',
+        'Fast and reliable shipping'
+      ];
+      optimized += '\n\n• ' + benefits.join('\n• ');
+
+      setOptimizedDescription(optimized);
+
+      // Analyze both descriptions
+      const originalAnalysis = analyzeText(originalDescription);
+      const optimizedAnalysis = analyzeText(optimized);
+
+      setSeoScore(optimizedAnalysis.seo);
+      setReadabilityScore(optimizedAnalysis.readability);
+      setConversionScore(optimizedAnalysis.conversion);
+
+      setAnalysisResults([
+        {
+          metric: 'SEO',
+          original: originalAnalysis.seo,
+          optimized: optimizedAnalysis.seo,
+          improvement: optimizedAnalysis.seo - originalAnalysis.seo
+        },
+        {
+          metric: 'Readability',
+          original: originalAnalysis.readability,
+          optimized: optimizedAnalysis.readability,
+          improvement: optimizedAnalysis.readability - originalAnalysis.readability
+        },
+        {
+          metric: 'Conversion',
+          original: originalAnalysis.conversion,
+          optimized: optimizedAnalysis.conversion,
+          improvement: optimizedAnalysis.conversion - originalAnalysis.conversion
+        }
+      ]);
+      setIsOptimizing(false);
+    }, 1200);
   };
 
+  // --- Clipboard/download ---
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
   };
-
   const downloadDescription = () => {
     const element = document.createElement('a');
     const file = new Blob([optimizedDescription], { type: 'text/plain' });
@@ -175,255 +281,397 @@ const ECommerceOptimizer = () => {
     document.body.removeChild(element);
   };
 
-  const ScoreCard = ({ title, score, icon: Icon, color }) => (
-    <div className="bg-white rounded-lg p-6 shadow-md border border-gray-200">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <Icon className={`w-6 h-6 ${color}`} />
-          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-        </div>
-        <span className={`text-2xl font-bold ${color}`}>{score}%</span>
-      </div>
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div 
-          className={`h-2 rounded-full transition-all duration-300 ${
-            score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-          }`}
-          style={{ width: `${score}%` }}
-        />
-      </div>
-    </div>
-  );
+  // --- Chart data ---
+  const analyticsChartData = analysisResults.map(r => ({
+    metric: r.metric,
+    Original: Number(r.original.toFixed(1)),
+    Optimized: Number(r.optimized.toFixed(1)),
+    Improvement: Number(r.improvement.toFixed(1))
+  }));
+
+  // --- Animated AI Insights Handler ---
+  const runInsights = async () => {
+    setIsAnalyzing(true);
+    setSuggestedKeywords([]);
+    setSentiment(null);
+    setTone("");
+    setSummary("");
+    try {
+      const keywordsRaw = await mistralKeywordSuggestion(originalDescription, mistralKey);
+      setSuggestedKeywords(
+        keywordsRaw.split(',').map(k => k.trim()).filter(Boolean)
+      );
+      const sentimentRaw = await mistralSentiment(originalDescription, mistralKey);
+      const match = sentimentRaw.match(/(Positive|Negative|Neutral)[^\d]*(\d+)?/i);
+      setSentiment(match
+        ? { label: match[1], score: match[2] ? (Number(match[2]) / 100) : null }
+        : { label: sentimentRaw, score: null }
+      );
+      setTone(await mistralTone(originalDescription, mistralKey));
+      setSummary(await mistralSummary(originalDescription, mistralKey));
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 1400);
+    } catch (e) {
+      alert("AI Insights Error: " + e.message);
+    }
+    setIsAnalyzing(false);
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
-      <div className="bg-white shadow-lg border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-3">
-              <Sparkles className="w-8 h-8 text-indigo-600" />
-              <h1 className="text-2xl font-bold text-gray-900">Product Description Optimizer</h1>
-            </div>
-            <div className="flex space-x-1">
-              <button
-                onClick={() => setActiveTab('optimizer')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeTab === 'optimizer'
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Optimizer
-              </button>
-              <button
-                onClick={() => setActiveTab('analytics')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeTab === 'analytics'
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Analytics
-              </button>
-            </div>
-          </div>
+    <div>
+      {/* Main Header and Tabs */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 30 }}>
+        <h1>
+          <span role="img" aria-label="sparkles">✨</span>
+          &nbsp;Product Description Optimizer
+        </h1>
+        <div>
+          <button
+            className={activeTab === 'optimizer' ? 'active-tab-btn' : 'tab-btn'}
+            onClick={() => setActiveTab('optimizer')}
+          >
+            Optimize
+          </button>
+          <button
+            className={activeTab === 'analytics' ? 'active-tab-btn' : 'tab-btn'}
+            onClick={() => setActiveTab('analytics')}
+          >
+            Analytics
+          </button>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'optimizer' ? (
-          <div className="space-y-8">
-            {/* Configuration Panel */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center">
-                <Target className="w-5 h-5 mr-2 text-indigo-600" />
-                Optimization Settings
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Product Category
-                  </label>
-                  <select
-                    value={productCategory}
-                    onChange={(e) => setProductCategory(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="electronics">Electronics</option>
-                    <option value="fashion">Fashion</option>
-                    <option value="home">Home & Garden</option>
-                    <option value="sports">Sports & Outdoors</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Target Audience
-                  </label>
-                  <select
-                    value={targetAudience}
-                    onChange={(e) => setTargetAudience(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="general">General Public</option>
-                    <option value="professional">Professionals</option>
-                    <option value="enthusiast">Enthusiasts</option>
-                    <option value="budget">Budget Conscious</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Target Keywords
-                  </label>
-                  <input
-                    type="text"
-                    value={keywords}
-                    onChange={(e) => setKeywords(e.target.value)}
-                    placeholder="keyword1, keyword2, keyword3"
-                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-              </div>
+      {/* Settings Panel */}
+      {activeTab === 'optimizer' && (
+        <div className="card" style={{ marginBottom: 26 }}>
+          <h2 style={{ fontSize: "1.18rem", marginBottom: 20, fontWeight: 600 }}>⚙️ Optimization Settings</h2>
+          <div className="flex-row" style={{ gap: 20 }}>
+            <div style={{ flex: 1 }}>
+              <label>Product Category</label>
+              <select
+                value={productCategory}
+                onChange={e => setProductCategory(e.target.value)}
+              >
+                <option value="electronics">Electronics</option>
+                <option value="fashion">Fashion</option>
+                <option value="home">Home & Garden</option>
+                <option value="sports">Sports & Outdoors</option>
+              </select>
             </div>
-
-            {/* Input/Output Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Original Description */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Original Description</h3>
-                <textarea
-                  value={originalDescription}
-                  onChange={(e) => setOriginalDescription(e.target.value)}
-                  placeholder="Paste your original product description here..."
-                  className="w-full h-64 p-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
-                />
-                <div className="mt-4 flex justify-center">
-                  <button
-                    onClick={generateOptimizedDescription}
-                    disabled={isOptimizing || !originalDescription.trim()}
-                    className="flex items-center px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isOptimizing ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                        Optimizing...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-5 h-5 mr-2" />
-                        Optimize Description
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Optimized Description */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-800">Optimized Description</h3>
-                  {optimizedDescription && (
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => copyToClipboard(optimizedDescription)}
-                        className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
-                        title="Copy to clipboard"
-                      >
-                        <Copy className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={downloadDescription}
-                        className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
-                        title="Download as text file"
-                      >
-                        <Download className="w-5 h-5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="h-64 p-4 border border-gray-300 rounded-md bg-gray-50 overflow-y-auto">
-                  {optimizedDescription ? (
-                    <div className="whitespace-pre-wrap text-gray-800">{optimizedDescription}</div>
-                  ) : (
-                    <div className="text-gray-500 italic">Optimized description will appear here...</div>
-                  )}
-                </div>
-              </div>
+            <div style={{ flex: 1 }}>
+              <label>Target Audience</label>
+              <select
+                value={targetAudience}
+                onChange={e => setTargetAudience(e.target.value)}
+              >
+                <option value="general">General Public</option>
+                <option value="professional">Professionals</option>
+                <option value="enthusiast">Enthusiasts</option>
+                <option value="budget">Budget Conscious</option>
+              </select>
             </div>
-
-            {/* Performance Metrics */}
-            {optimizedDescription && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <ScoreCard
-                  title="SEO Score"
-                  score={seoScore}
-                  icon={Target}
-                  color="text-blue-600"
-                />
-                <ScoreCard
-                  title="Readability"
-                  score={readabilityScore}
-                  icon={Eye}
-                  color="text-green-600"
-                />
-                <ScoreCard
-                  title="Conversion Potential"
-                  score={conversionScore}
-                  icon={TrendingUp}
-                  color="text-purple-600"
-                />
-              </div>
-            )}
+            <div style={{ flex: 1 }}>
+              <label>Target Keywords</label>
+              <input
+                type="text"
+                value={keywords}
+                onChange={e => setKeywords(e.target.value)}
+                placeholder="keyword1, keyword2, keyword3"
+              />
+            </div>
           </div>
-        ) : (
-          /* Analytics Tab */
-          <div className="space-y-8">
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center">
-                <TrendingUp className="w-5 h-5 mr-2 text-indigo-600" />
-                Performance Analysis
-              </h2>
-              
-              {analysisResults.length > 0 ? (
-                <div className="space-y-4">
-                  {analysisResults.map((result, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <div className="text-lg font-medium text-gray-800">{result.metric}</div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-gray-600">Original: {result.original}%</span>
-                          <span className="text-gray-400">→</span>
-                          <span className="text-indigo-600 font-semibold">Optimized: {result.optimized}%</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {result.improvement > 0 ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-yellow-500" />
-                        )}
-                        <span className={`font-semibold ${
-                          result.improvement > 0 ? 'text-green-600' : 'text-yellow-600'
-                        }`}>
-                          {result.improvement > 0 ? '+' : ''}{result.improvement}%
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>No analysis data available. Please optimize a description first.</p>
-                </div>
+          {/* Mistral Key */}
+          <div style={{marginTop: 22}}>
+            <label>
+              <b>Mistral API Key:</b>
+              <input
+                type="password"
+                value={mistralKey}
+                onChange={e => setMistralKey(e.target.value)}
+                placeholder="sk-..."
+                style={{maxWidth: 200, marginLeft: 8}}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Optimizer Input/Output */}
+      {activeTab === 'optimizer' && (
+        <div className="flex-row" style={{ gap: 20 }}>
+          {/* Original Description */}
+          <div className="card" style={{ flex: 1 }}>
+            <h3 style={{ color: "#41416b" }}>Original Description</h3>
+            <textarea
+              value={originalDescription}
+              onChange={e => setOriginalDescription(e.target.value)}
+              placeholder="Paste your original product description here..."
+              style={{ minHeight: 120, marginBottom: 14 }}
+            />
+            <div style={{ textAlign: 'center' }}>
+              <button
+                onClick={generateOptimizedDescription}
+                disabled={isOptimizing || !originalDescription.trim() || !mistralKey}
+              >
+                {isOptimizing ? "Optimizing with AI..." : "Optimize Description"}
+              </button>
+            </div>
+          </div>
+
+          {/* Optimized Description */}
+          <div className="card" style={{ flex: 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ color: "#41416b" }}>Optimized Description</h3>
+              {optimizedDescription && (
+                <span>
+                  <button title="Copy" style={{ padding: "3px 10px" }} onClick={() => copyToClipboard(optimizedDescription)}>📋</button>
+                  <button title="Download" style={{ padding: "3px 10px" }} onClick={downloadDescription}>⬇️</button>
+                </span>
               )}
             </div>
+            <div style={{
+              minHeight: 120,
+              background: "#f4f7fb",
+              borderRadius: 7,
+              border: "1px solid #dbe1fa",
+              padding: 12,
+              color: "#343478",
+              overflowY: "auto"
+            }}>
+              {optimizedDescription
+                ? <span style={{ whiteSpace: "pre-line" }}>{optimizedDescription}</span>
+                : <span style={{ color: "#999" }}>Optimized description will appear here...</span>
+              }
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* AI Insights Panel (Mistral only) */}
+      {activeTab === 'optimizer' && (
+        <div className="card" style={{ marginTop: 26 }}>
+          <h3>✨ AI Insights</h3>
+          <div style={{margin: "10px 0"}}>
+            <label>
+              Mistral API Key:
+              <input
+                type="password"
+                value={mistralKey}
+                onChange={e => setMistralKey(e.target.value)}
+                placeholder="sk-..."
+                style={{maxWidth: 300, marginLeft: 8}}
+              />
+            </label>
+            <button
+              style={{marginLeft: 8}}
+              disabled={isAnalyzing || !mistralKey || !originalDescription}
+              onClick={runInsights}
+            >
+              {isAnalyzing ? "Analyzing..." : "Analyze with AI"}
+            </button>
+          </div>
+          <AnimatePresence>
+            {(suggestedKeywords.length > 0 || sentiment || tone || summary) && (
+              <motion.div
+                className="insights-grid"
+                initial={{ opacity: 0, y: 28 }}
+                animate={{ opacity: 1, y: 0, transition: { staggerChildren: 0.09, delayChildren: 0.12 } }}
+                exit={{ opacity: 0, y: 16 }}
+              >
+
+                {/* Sparkle animation */}
+                {(!isAnalyzing && (suggestedKeywords.length > 0 || sentiment || tone || summary)) &&
+                  <span className="sparkle" key="sparkle">✨</span>
+                }
+
+                {/* Sentiment */}
+                {sentiment && (
+                  <motion.div
+                    className="insight-card"
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    tabIndex={0}
+                  >
+                    <div className="info-tooltip">How positive/negative is the description? Confidence shown.</div>
+                    <div className="insight-title">
+                      <span role="img" aria-label="sentiment">💬</span>
+                      Sentiment
+                      <span className={
+                        "sentiment-badge " +
+                        (sentiment.label.toLowerCase().includes("pos") ? "sentiment-positive"
+                          : sentiment.label.toLowerCase().includes("neg") ? "sentiment-negative"
+                          : "sentiment-neutral")
+                      }>
+                        {sentiment.label}
+                        {sentiment.score !== null ? ` ${(sentiment.score*100).toFixed(0)}%` : ""}
+                      </span>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Tone */}
+                {tone && (
+                  <motion.div
+                    className="insight-card"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    tabIndex={0}
+                  >
+                    <div className="info-tooltip">Is the language formal, informal or neutral?</div>
+                    <div className="insight-title">
+                      <span role="img" aria-label="tone">🎤</span>
+                      Tone
+                    </div>
+                    <div style={{ fontWeight: 500, color: "#6366f1", fontSize: "1.1rem" }}>{tone}</div>
+                  </motion.div>
+                )}
+
+                {/* Summary */}
+                {summary && (
+                  <motion.div
+                    className="insight-card"
+                    style={{ minWidth: 220 }}
+                    initial={{ opacity: 0, y: 26 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    tabIndex={0}
+                  >
+                    <div className="info-tooltip">A quick summary of the description content.</div>
+                    <div className="insight-title">
+                      <span role="img" aria-label="summary">📝</span>
+                      Summary
+                    </div>
+                    <div style={{ color: "#454579", fontSize: "1.03rem" }}>{summary}</div>
+                  </motion.div>
+                )}
+
+                {/* Keywords */}
+                {suggestedKeywords.length > 0 && (
+                  <motion.div
+                    className="insight-card"
+                    style={{ minWidth: 220 }}
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    tabIndex={0}
+                  >
+                    <div className="info-tooltip">Top SEO keywords the AI found in your description.</div>
+                    <div className="insight-title">
+                      <span role="img" aria-label="keywords">🔑</span>
+                      Suggested Keywords
+                    </div>
+                    <div className="keywords-list">
+                      {suggestedKeywords.map((kw, i) =>
+                        <span className="keyword-pill" key={i}>{kw}</span>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {/* Success modal */}
+          <AnimatePresence>
+            {showSuccess && (
+              <motion.div
+                style={{
+                  position: "fixed", left: 0, right: 0, top: 0, bottom: 0,
+                  background: "rgba(32,38,60,0.19)",
+                  display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999
+                }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <motion.div
+                  style={{
+                    background: "#fff", borderRadius: 14, boxShadow: "0 4px 38px rgba(60,80,150,0.18)",
+                    padding: "40px 38px", display: "flex", flexDirection: "column", alignItems: "center"
+                  }}
+                  initial={{ scale: 0.6, opacity: 0.5 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.7, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 24 }}
+                >
+                  <span style={{ fontSize: 36 }}>✨</span>
+                  <div style={{ marginTop: 8, fontSize: "1.15rem", color: "#444", fontWeight: 600 }}>AI Insights Ready!</div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Analytics Tab ONLY */}
+      {activeTab === 'analytics' && (
+        <div>
+          <h2 style={{ textAlign: "center", marginBottom: 10, color: "#343478" }}>
+            Performance Analysis
+          </h2>
+          {analysisResults.length > 0 ? (
+            <>
+              {/* Bar Chart */}
+              <div style={{width: "100%", height: 320, background: "#f8fafc", borderRadius: 10, marginBottom: 28, boxShadow: "0 2px 8px rgba(80,100,160,0.06)"}}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={analyticsChartData}
+                    margin={{top: 22, right: 30, left: 0, bottom: 0}}
+                  >
+                    <XAxis dataKey="metric" fontSize={15}/>
+                    <YAxis domain={[0, 100]} fontSize={13} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="Original" fill="#60a5fa" />
+                    <Bar dataKey="Optimized" fill="#6366f1" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {/* Analytics Cards */}
+              <div className="analytics-grid">
+                {analysisResults.map((result, idx) => (
+                  <div className="analytics-card" key={idx}>
+                    <div className="metric-title">
+                      {result.metric === "SEO" && <span>🔍</span>}
+                      {result.metric === "Readability" && <span>📖</span>}
+                      {result.metric === "Conversion" && <span>💸</span>}
+                      {result.metric}
+                    </div>
+                    <div className="score">{result.optimized.toFixed(1)}%</div>
+                    <div className="analytics-bar-bg">
+                      <div
+                        className="analytics-bar"
+                        style={{ width: `${result.optimized}%` }}
+                      ></div>
+                    </div>
+                    <div style={{ fontSize: 14, color: "#6a6a9a", marginTop: 2 }}>
+                      Original: <b>{result.original.toFixed(1)}%</b>
+                    </div>
+                    <div
+                      className={
+                        "analytics-improvement" +
+                        (result.improvement < 0 ? " negative" : "")
+                      }
+                    >
+                      {result.improvement > 0 && <span>▲</span>}
+                      {result.improvement < 0 && <span>▼</span>}
+                      {result.improvement === 0 && <span>■</span>}
+                      &nbsp;{result.improvement >= 0 ? "+" : ""}
+                      {result.improvement.toFixed(1)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: 30, color: "#7d7dad", textAlign: "center" }}>
+              <span style={{ fontSize: 36 }}>📊</span>
+              <div>No analysis data available. Please optimize a description first.</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

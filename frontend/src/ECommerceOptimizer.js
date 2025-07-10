@@ -90,7 +90,7 @@ Suggest a short, catchy SEO title for this product (max 8 words).
 Description:
 ${original}
   `.trim();
-  return mistralSinglePrompt(prompt, "You are an expert SEO copywriter.", 0.3, 32);
+  return mistralSinglePrompt(prompt, "You are an expert SEO copywriter.", 0.7, 32);
 }
 
 

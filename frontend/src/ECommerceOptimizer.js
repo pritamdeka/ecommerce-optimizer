@@ -35,22 +35,22 @@ Target audience: ${audience}
 Required keywords: ${keywords}
 
 Instructions:
-- Use a persuasive, concise style.
-- Adapt vocabulary, tone, and details to appeal specifically to the target audience.
-- DO NOT use markdown, symbols, asterisks, or bullet points. Write as plain text only.
-- Output ONLY the improved product description. No intro, no explanation, no formatting.
+- Write a persuasive, concise product description in plain text only.
+- Do NOT use markdown, bold, italics, bullet points, lists, headings, or any formatting.
+- Do NOT mention, list, or reference the keywords used in the text.
+- Do NOT include any meta-comments, explanations, or introductions.
+- Write as a single paragraph of natural language.
 
 For example: For 'professionals', use precise, technical language. For 'budget' audiences, emphasize savings and value.
 
 Description:
 ${original}`.trim();
-  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.", 0.5, 1024);
+  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.", 0.3, 1024);
 }
 async function mistralKeywordSuggestion(original) {
   const prompt = `Extract exactly 5 main SEO keywords (not phrases, just single or two-word terms) from the following product description. 
   Only print the keywords separated by commas—no extra text, no explanation:\n${original}`.trim();
   return mistralSinglePrompt(prompt,  "You are an expert SEO copywriter.", 0.2, 128);
-  return raw.replace(/^[^a-zA-Z0-9]*|[^a-zA-Z0-9, ]*$/g, '').trim(););
 }
 async function mistralSentiment(original) {
   const prompt = `What is the sentiment of this product description? Respond with one of: Positive, Negative, Neutral. Also give a confidence score from 0-100. Description:\n${original}`;

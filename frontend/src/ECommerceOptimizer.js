@@ -54,12 +54,18 @@ async function mistralKeywordSuggestion(original) {
   return mistralSinglePrompt(prompt,  "You are an expert SEO copywriter.", 0.2, 128);
 }
 async function mistralSentiment(original) {
-  const prompt = `What is the sentiment of this product description? Respond with one of: Positive, Negative, Neutral. Also give a confidence score from 0-100. Description:\n${original}`;
+  const prompt = `What is the sentiment of this product description? Respond with one of: Positive, Negative, Neutral. Also give a confidence score from 0-100.
+  Description:\n${original}`;
   return mistralSinglePrompt(prompt,"You are an expert marketing analyst.", 0.2, 20);
 }
 async function mistralTone(original) {
-  const prompt = `Is the tone of this product description formal, informal, or neutral? Description:\n${original}`;
-  return mistralSinglePrompt(prompt, "You are an expert marketing analyst.", 0.2, 128);
+  const prompt = `Is the tone of this product description formal, informal, or neutral? 
+    Instructions:
+	- Write in clear, natural English for online shoppers.
+	- Do NOT use bold, italics, or special symbols.
+	- The result should be lively, easy to scan, and persuasive.
+  Description:\n${original}`;
+  return mistralSinglePrompt(prompt, "You are an expert marketing analyst.", 0.2, 512);
 }
 async function mistralSummary(original) {
   const prompt = `Summarize the following product description in 1-2 sentences:\n${original}`;
@@ -69,7 +75,7 @@ async function mistralSummary(original) {
 async function mistralUSPs(original) {
   const prompt = `
 List exactly 2 unique selling points for this product.
-- Print only the selling points as bullet points, no intro, no extra text, no markdown or asterisks. Use "•" at the start of each line.
+- Print only the selling points as bullet points, no intro, no extra text, no markdown or asterisks. 
 Description:
 ${original}
   `.trim();

@@ -35,17 +35,18 @@ Target audience: ${audience}
 Required keywords: ${keywords}
 
 Instructions:
-- Write a persuasive, concise product description in plain text only.
-- Do NOT use markdown, bold, italics, bullet points, lists, headings, or any formatting.
-- Do NOT mention, list, or reference the keywords used in the text.
-- Do NOT include any meta-comments, explanations, or introductions.
-- Write as a single paragraph of natural language.
+- Write in clear, natural English for online shoppers.
+- Use 2–3 short paragraphs for flow.
+- You may use 1 short, plain-text list for features or benefits (no bullet points, no asterisks, just commas or semicolons; do NOT use markdown or formatting).
+- Do NOT include any headings, meta-comments, explanations, or mention of keywords.
+- Do NOT use bold, italics, or special symbols.
+- The result should be lively, easy to scan, and persuasive.
 
 For example: For 'professionals', use precise, technical language. For 'budget' audiences, emphasize savings and value.
 
 Description:
 ${original}`.trim();
-  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.", 0.3, 1024);
+  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.", 0.5, 1024);
 }
 async function mistralKeywordSuggestion(original) {
   const prompt = `Extract exactly 5 main SEO keywords (not phrases, just single or two-word terms) from the following product description. 

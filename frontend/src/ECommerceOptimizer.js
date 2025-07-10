@@ -322,7 +322,7 @@ const ECommerceOptimizer = () => {
   }));
 
   // --- Animated AI Insights Handler ---
-	const runInsights = async () => {
+	  const runInsights = async () => {
 	  setIsAnalyzing(true);
 	  setSuggestedKeywords([]);
 	  setSentiment(null);
@@ -352,14 +352,27 @@ const ECommerceOptimizer = () => {
 		setSummary(await mistralSummary(originalDescription));
 
 		// USPs
-		const uspsArr = await mistralUSPs(originalDescription);
-		setUSPs(Array.isArray(uspsArr) ? uspsArr : []);
+		let uspsRaw = await mistralUSPs(originalDescription);
+		if (typeof uspsRaw === "string") {
+		  uspsRaw = uspsRaw
+			.split('\n')
+			.map(l => l.replace(/^•\s*/, '').replace(/[*\-]/g, '').trim())
+			.filter(Boolean)
+			.slice(0, 2);
+		}
+		setUSPs(Array.isArray(uspsRaw) ? uspsRaw : []);
 
 		// SEO Title
-		const seoTitleRaw = await mistralSEOTitle(originalDescription);
+		let seoTitleRaw = await mistralSEOTitle(originalDescription);
+		if (seoTitleRaw) {
+		  seoTitleRaw = seoTitleRaw
+			.replace(/^["']|["']$/g, '')
+			.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9 ]+$/g, '')
+			.replace(/\n/g, ' ')
+			.trim();
+		}
 		setSEOTitle(seoTitleRaw);
 
-		// Show success modal/sparkle
 		setShowSuccess(true);
 		setTimeout(() => setShowSuccess(false), 1400);
 
@@ -368,6 +381,7 @@ const ECommerceOptimizer = () => {
 	  }
 	  setIsAnalyzing(false);
 	};
+
 
 
   return (

@@ -5,7 +5,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 // ===== Mistral AI utility functions via proxy =====
-async function mistralSinglePrompt(prompt, sys = "You are an expert e-commerce product analyst.") {
+async function mistralSinglePrompt(prompt, sys = "You are an expert e-commerce product analyst.", temperature = 0.4, max_tokens = 256) {
   const res = await fetch("/api/mistral-proxy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -17,8 +17,8 @@ async function mistralSinglePrompt(prompt, sys = "You are an expert e-commerce p
           { role: "system", content: sys },
           { role: "user", content: prompt }
         ],
-        max_tokens: 1024,
-        temperature: 0.2
+        max_tokens,
+        temperature
       }
     })
   });
@@ -28,25 +28,64 @@ async function mistralSinglePrompt(prompt, sys = "You are an expert e-commerce p
 }
 
 async function mistralOptimizeDescription(original, keywords, category, audience) {
-  const prompt = `Rewrite this product description to maximize sales and SEO for a(n) ${category} product for the target audience: ${audience}. Include these keywords: ${keywords}. Here is the original:\n${original}\nOptimized:`;
-  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.");
+  const prompt = `Rewrite the following product description to maximize sales and SEO, tailoring language and content for the target audience.
+
+Category: ${category}
+Target audience: ${audience}
+Required keywords: ${keywords}
+
+Instructions:
+- Use a persuasive, concise style.
+- Adapt vocabulary, tone, and details to appeal specifically to the target audience.
+- DO NOT use markdown, symbols, asterisks, or bullet points. Write as plain text only.
+- Output ONLY the improved product description. No intro, no explanation, no formatting.
+
+For example: For 'professionals', use precise, technical language. For 'budget' audiences, emphasize savings and value.
+
+Description:
+${original}`.trim();
+  return mistralSinglePrompt(prompt, "You are an expert e-commerce copywriter. Do not add any text by yourself. Strictly Stick to the description given to you.", 0.5, 1024);
 }
 async function mistralKeywordSuggestion(original) {
-  const prompt = `Extract 5 main SEO keywords from the following product description, separated by commas:\n${original}`;
-  return mistralSinglePrompt(prompt);
+  const prompt = `Extract exactly 5 main SEO keywords (not phrases, just single or two-word terms) from the following product description. 
+  Only print the keywords separated by commas—no extra text, no explanation:\n${original}`.trim();
+  return mistralSinglePrompt(prompt,  "You are an expert SEO copywriter.", 0.2, 128);
+  return raw.replace(/^[^a-zA-Z0-9]*|[^a-zA-Z0-9, ]*$/g, '').trim(););
 }
 async function mistralSentiment(original) {
   const prompt = `What is the sentiment of this product description? Respond with one of: Positive, Negative, Neutral. Also give a confidence score from 0-100. Description:\n${original}`;
-  return mistralSinglePrompt(prompt);
+  return mistralSinglePrompt(prompt,"You are an expert marketing analyst.", 0.2, 20);
 }
 async function mistralTone(original) {
   const prompt = `Is the tone of this product description formal, informal, or neutral? Description:\n${original}`;
-  return mistralSinglePrompt(prompt);
+  return mistralSinglePrompt(prompt, "You are an expert marketing analyst.", 0.2, 128);
 }
 async function mistralSummary(original) {
   const prompt = `Summarize the following product description in 1-2 sentences:\n${original}`;
-  return mistralSinglePrompt(prompt);
+  return mistralSinglePrompt(prompt, "You are an expert summarizer.", 0.3, 128);
 }
+// Generate exactly 2 USPs as bullet points, no intro
+async function mistralUSPs(original) {
+  const prompt = `
+List exactly 2 unique selling points for this product.
+- Print only the selling points as bullet points, no intro, no extra text, no markdown or asterisks. Use "•" at the start of each line.
+Description:
+${original}
+  `.trim();
+  return mistralSinglePrompt(prompt, "You are an expert product marketing copywriter.", 0.4, 80);
+}
+
+// Generate an SEO title, max 8 words, plain text only
+async function mistralSEOTitle(original) {
+  const prompt = `
+Suggest a short, catchy SEO title for this product (max 8 words).
+- Print only the title, no intro, no extra text, no formatting.
+Description:
+${original}
+  `.trim();
+  return mistralSinglePrompt(prompt, "You are an expert SEO copywriter.", 0.3, 32);
+}
+
 
 const ECommerceOptimizer = () => {
   // --- State ---
@@ -69,6 +108,9 @@ const ECommerceOptimizer = () => {
   const [summary, setSummary] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [usps, setUSPs] = useState([]);
+  const [seoTitle, setSEOTitle] = useState('');
+
 
   // --- Fallback rules (only if API down) ---
   const optimizationRules = {
@@ -280,32 +322,53 @@ const ECommerceOptimizer = () => {
   }));
 
   // --- Animated AI Insights Handler ---
-  const runInsights = async () => {
-    setIsAnalyzing(true);
-    setSuggestedKeywords([]);
-    setSentiment(null);
-    setTone("");
-    setSummary("");
-    try {
-      const keywordsRaw = await mistralKeywordSuggestion(originalDescription);
-      setSuggestedKeywords(
-        keywordsRaw.split(',').map(k => k.trim()).filter(Boolean)
-      );
-      const sentimentRaw = await mistralSentiment(originalDescription);
-      const match = sentimentRaw.match(/(Positive|Negative|Neutral)[^\d]*(\d+)?/i);
-      setSentiment(match
-        ? { label: match[1], score: match[2] ? (Number(match[2]) / 100) : null }
-        : { label: sentimentRaw, score: null }
-      );
-      setTone(await mistralTone(originalDescription));
-      setSummary(await mistralSummary(originalDescription));
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 1400);
-    } catch (e) {
-      alert("AI Insights Error: " + e.message);
-    }
-    setIsAnalyzing(false);
-  };
+	const runInsights = async () => {
+	  setIsAnalyzing(true);
+	  setSuggestedKeywords([]);
+	  setSentiment(null);
+	  setTone("");
+	  setSummary("");
+	  setUSPs([]);
+	  setSEOTitle("");
+	  try {
+		// Keywords
+		const keywordsRaw = await mistralKeywordSuggestion(originalDescription);
+		setSuggestedKeywords(
+		  keywordsRaw.split(',').map(k => k.trim()).filter(Boolean)
+		);
+
+		// Sentiment
+		const sentimentRaw = await mistralSentiment(originalDescription);
+		const match = sentimentRaw.match(/(Positive|Negative|Neutral)[^\d]*(\d+)?/i);
+		setSentiment(match
+		  ? { label: match[1], score: match[2] ? (Number(match[2]) / 100) : null }
+		  : { label: sentimentRaw, score: null }
+		);
+
+		// Tone
+		setTone(await mistralTone(originalDescription));
+
+		// Summary
+		setSummary(await mistralSummary(originalDescription));
+
+		// USPs
+		const uspsArr = await mistralUSPs(originalDescription);
+		setUSPs(Array.isArray(uspsArr) ? uspsArr : []);
+
+		// SEO Title
+		const seoTitleRaw = await mistralSEOTitle(originalDescription);
+		setSEOTitle(seoTitleRaw);
+
+		// Show success modal/sparkle
+		setShowSuccess(true);
+		setTimeout(() => setShowSuccess(false), 1400);
+
+	  } catch (e) {
+		alert("AI Insights Error: " + e.message);
+	  }
+	  setIsAnalyzing(false);
+	};
+
 
   return (
     <div>
@@ -535,6 +598,51 @@ const ECommerceOptimizer = () => {
                     </div>
                   </motion.div>
                 )}
+				
+				{/* SEO Title */}
+				{seoTitle && (
+				  <motion.div
+					className="insight-card"
+					style={{ minWidth: 210, background: "#ecfeff" }}
+					initial={{ opacity: 0, y: 24 }}
+					animate={{ opacity: 1, y: 0 }}
+					exit={{ opacity: 0, y: 6 }}
+					tabIndex={0}
+				  >
+					<div className="info-tooltip">AI-generated short SEO title for this product.</div>
+					<div className="insight-title">
+					  <span role="img" aria-label="title">🏷️</span>
+					  SEO Title
+					</div>
+					<div style={{ fontWeight: 600, color: "#1e293b", fontSize: "1.08rem", marginTop: 7 }}>
+					  {seoTitle}
+					</div>
+				  </motion.div>
+				)}
+
+				{/* USPs */}
+				{usps.length > 0 && (
+				  <motion.div
+					className="insight-card"
+					style={{ minWidth: 220, background: "#fef9c3" }}
+					initial={{ opacity: 0, y: 15 }}
+					animate={{ opacity: 1, y: 0 }}
+					exit={{ opacity: 0, y: 6 }}
+					tabIndex={0}
+				  >
+					<div className="info-tooltip">Top 2 unique selling points, AI-generated.</div>
+					<div className="insight-title">
+					  <span role="img" aria-label="usp">💡</span>
+					  Unique Selling Points
+					</div>
+					<ul style={{ margin: "8px 0 0 8px", padding: 0 }}>
+					  {usps.map((u, i) => <li key={i} style={{ fontSize: "1rem" }}>• {u}</li>)}
+					</ul>
+				  </motion.div>
+				)}
+
+				
+				
               </motion.div>
             )}
           </AnimatePresence>

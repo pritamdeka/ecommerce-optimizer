@@ -62,10 +62,10 @@ async function mistralTone(original) {
   const prompt = `Is the tone of this product description formal, informal, or neutral? 
     Instructions:
 	- Write in clear, natural English for online shoppers.
+	- Do NOT include any headings, meta-comments, explanations, or mention of keywords.
 	- Do NOT use bold, italics, or special symbols.
-	- The result should be lively, easy to scan, and persuasive.
   Description:\n${original}`;
-  return mistralSinglePrompt(prompt, "You are an expert marketing analyst.", 0.2, 512);
+  return mistralSinglePrompt(prompt, "You are an expert marketing analyst.", 0.3, 512);
 }
 async function mistralSummary(original) {
   const prompt = `Summarize the following product description in 1-2 sentences:\n${original}`;
